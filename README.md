@@ -2,6 +2,8 @@
 
 Compare diffs between two git ranges - a "diff of diffs" tool.
 
+> **Demo Branches**: See [test scenarios](docs/test-strategy.md#proposed-test-branch-structure) for examples you can try. Test scenario 01 is live in this repo!
+
 This tool is particularly useful for verifying rebases, especially when complex conflict resolution was involved. It helps ensure that the actual changes in your branch remain the same before and after rebasing onto a new upstream.
 
 ## Installation
@@ -127,6 +129,36 @@ When comparing patches, it uses a sophisticated 256-color palette to make nested
 - Dark backgrounds for context lines
 - Mixed colors for lines that changed type (+ to - or vice versa)
 
+## Try it yourself - Test Scenarios
+
+This repo includes test branches demonstrating various rebase/merge scenarios. Try:
+
+```bash
+# Clone this repo
+git clone https://github.com/ryan-williams/git-didi.git
+cd git-didi
+
+# Example: Clean rebase with disjoint changes
+# Alice adds priority field, Bob adds JSON format - no conflicts!
+git-didi patch tests/01-clean-disjoint/base..tests/01-clean-disjoint/alice \
+               tests/01-clean-disjoint/bob..tests/01-clean-disjoint/alice-rebased-on-bob
+# Output: "No differences in patches" ✓
+
+# See what each developer changed
+git log --oneline tests/01-clean-disjoint/base..tests/01-clean-disjoint/alice
+git log --oneline tests/01-clean-disjoint/base..tests/01-clean-disjoint/bob
+
+# Try the other direction
+git-didi patch tests/01-clean-disjoint/base..tests/01-clean-disjoint/bob \
+               tests/01-clean-disjoint/alice..tests/01-clean-disjoint/bob-rebased-on-alice
+
+# Or verify a merge commit preserved both changes
+git-didi patch tests/01-clean-disjoint/base..tests/01-clean-disjoint/alice \
+               tests/01-clean-disjoint/merged^1..tests/01-clean-disjoint/merged
+```
+
+See [Test Strategy](docs/test-strategy.md) for details on the test scenarios and how to generate more.
+
 ## Development
 
 ```bash
@@ -138,7 +170,10 @@ cd git-didi
 uv sync --extra test
 
 # Run tests
-uv run pytest tests/ -v
+pytest tests/ -v
+
+# Generate additional test scenarios
+./scripts/generate-test-scenario.py 01-clean-disjoint
 
 # Install locally
 uv pip install -e .
