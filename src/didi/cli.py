@@ -19,7 +19,7 @@ After fetching and rebasing your branch onto main:
     git rebase main
 
 You can verify the rebase preserved your changes:
-    git-didi.py patch main@{1}..branch@{1} main..branch
+    git-didi patch main@{1}..branch@{1} main..branch
 
 This compares:
 - Left side: Your changes before the rebase (main@{1}..branch@{1})
@@ -40,15 +40,23 @@ that change even when the actual patch content is identical.
 """
 
 import difflib
-import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from subprocess import run, PIPE, Popen
-from io import StringIO
+from subprocess import run
 
 from click import Choice, echo, group, style
 from utz import err
 from utz.cli import arg, flag, opt
+
+from .color import should_use_color
+from .diff import (
+    build_diff_cmd,
+    get_changed_files,
+    get_commits,
+    get_file_diff,
+    normalize_diff,
+)
+from .pager import Pager
 
 
 # Common option decorators
@@ -67,86 +75,6 @@ def common_opts(func):
     func = find_renames_opt(func)
     func = ignore_whitespace_flag(func)
     return func
-
-
-def should_use_color(color_option: str) -> bool:
-    """Determine if color should be used based on option and TTY status."""
-    if color_option == 'always':
-        return True
-    elif color_option == 'never':
-        return False
-    else:  # auto
-        return sys.stdout.isatty()
-
-
-class Pager:
-    """Context manager for paging output through less or similar."""
-
-    def __init__(self, use_pager: str = 'auto'):
-        """Initialize pager settings.
-
-        Args:
-            use_pager: 'always', 'never', or 'auto' (default)
-        """
-        self.use_pager = use_pager
-        self.original_stdout = None
-        self.buffer = None
-        self.pager_process = None
-
-    def should_page(self) -> bool:
-        """Determine if paging should be used."""
-        if self.use_pager == 'always':
-            return True
-        elif self.use_pager == 'never':
-            return False
-        else:  # auto
-            # Use pager if output is to a TTY
-            return sys.stdout.isatty()
-
-    def __enter__(self):
-        """Start capturing output for potential paging."""
-        if self.should_page():
-            # Capture output in a buffer first
-            self.original_stdout = sys.stdout
-            self.buffer = StringIO()
-            sys.stdout = self.buffer
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Send captured output through pager if needed."""
-        if self.original_stdout:
-            # Restore original stdout
-            sys.stdout = self.original_stdout
-
-            if self.buffer:
-                output = self.buffer.getvalue()
-
-                # Only page if output is substantial (more than terminal height)
-                try:
-                    terminal_height = int(os.environ.get('LINES', 24))
-                    output_lines = output.count('\n')
-
-                    if output_lines > terminal_height - 2:  # Leave room for prompt
-                        # Use git's pager settings if available
-                        pager_cmd = run(['git', 'config', 'core.pager'],
-                                      capture_output=True, text=True).stdout.strip()
-                        if not pager_cmd:
-                            # Default to less with good options
-                            pager_cmd = 'less -FRSX'
-
-                        # Send output through pager
-                        try:
-                            pager = Popen(pager_cmd, shell=True, stdin=PIPE, text=True)
-                            pager.communicate(output)
-                        except Exception:
-                            # If pager fails, just print directly
-                            print(output, end='')
-                    else:
-                        # Output fits in terminal, print directly
-                        print(output, end='')
-                except Exception:
-                    # If anything goes wrong, just print
-                    print(output, end='')
 
 
 @group()
@@ -175,7 +103,7 @@ def stat(
 ) -> None:
     """Compare git diff --stat output between two refspecs.
 
-    Example: git-didi.py stat rmb..m/rw/ee m/main..ee
+    Example: git-didi stat rmb..m/rw/ee m/main..ee
     Optionally filter to specific paths.
     """
     use_color = should_use_color(color)
@@ -557,73 +485,6 @@ def commits(
                         echo(f"    {filepath}: patches differ")
             else:
                 echo(f"[{i+1}] {msg} - identical")
-
-
-def build_diff_cmd(
-    ignore_whitespace: bool = False,
-    find_renames: str = None,
-    find_copies: str = None,
-    follow: bool = False,
-) -> list[str]:
-    """Build base git diff command with common options."""
-    cmd = ['git', 'diff']
-    if follow:
-        cmd.append('--follow')
-    if ignore_whitespace:
-        cmd.append('-w')
-    if find_renames:
-        cmd.append(f'-M{find_renames}')
-    if find_copies:
-        cmd.append(f'-C{find_copies}')
-    return cmd
-
-
-def get_changed_files(refspec: str, paths: tuple[str, ...] = ()) -> list[str]:
-    """Get list of files changed in a git refspec, optionally filtered by paths."""
-    cmd = ['git', 'diff', '--name-only', refspec]
-    if paths:
-        cmd.extend(['--', *paths])
-    result = run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        err(f"Error getting changed files for {refspec}: {result.stderr.strip()}")
-        sys.exit(1)
-    return [f for f in result.stdout.strip().split('\n') if f]
-
-
-def normalize_diff(diff_text: str) -> str:
-    """Normalize diff text by removing variable parts like index SHAs."""
-    lines = []
-    for line in diff_text.splitlines():
-        # Remove index line SHAs: "index abc123..def456" -> "index ..."
-        if line.startswith('index '):
-            lines.append('index ...')
-        else:
-            lines.append(line)
-    return '\n'.join(lines)
-
-
-def get_file_diff(
-    refspec: str,
-    filepath: str,
-    ignore_whitespace: bool = False,
-    unified: int = 3,
-    find_renames: str = None,
-    find_copies: str = None,
-) -> str:
-    """Get diff for a specific file in a refspec."""
-    cmd = build_diff_cmd(ignore_whitespace, find_renames, find_copies, follow=True)
-    cmd.extend([f'-U{unified}', refspec, '--', filepath])
-    result = run(cmd, capture_output=True, text=True)
-    return result.stdout
-
-
-def get_commits(refspec: str) -> list[str]:
-    """Get list of commits in a refspec."""
-    result = run(['git', 'log', '--oneline', refspec], capture_output=True, text=True)
-    if result.returncode != 0:
-        err(f"Error getting commits for {refspec}: {result.stderr}")
-        return []
-    return [line for line in result.stdout.strip().split('\n') if line]
 
 
 if __name__ == '__main__':
