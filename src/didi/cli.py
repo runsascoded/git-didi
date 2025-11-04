@@ -51,9 +51,11 @@ from utz.cli import arg, flag, opt
 from .color import should_use_color
 from .diff import (
     build_diff_cmd,
+    compute_upstream_range,
     get_changed_files,
     get_commits,
     get_file_diff,
+    get_rename_mapping,
     normalize_diff,
 )
 from .pager import Pager
@@ -189,47 +191,79 @@ def patch(
     use_color = should_use_color(color)
 
     with Pager(pager):
+        # Compute upstream range to detect renames
+        # E.g., if comparing A..B vs C..D, look at A..C for upstream changes
+        upstream_range = compute_upstream_range(refspec1, refspec2)
+        rename_map = {}
+        if upstream_range:
+            rename_map = get_rename_mapping(upstream_range, find_renames, find_copies)
+            if rename_map:
+                err(f"Detected {len(rename_map)} rename(s) in upstream ({upstream_range})")
+
         # Get list of changed files in both refspecs
         files1 = get_changed_files(refspec1, paths)
         files2 = get_changed_files(refspec2, paths)
 
-        all_files = sorted(set(files1) | set(files2))
+        # Apply rename mapping to files1
+        # If a file was renamed in upstream, we need to look for it under the new name in refspec2
+        files1_mapped = []
+        for f in files1:
+            if f in rename_map:
+                files1_mapped.append((f, rename_map[f]))  # (old_name, new_name)
+            else:
+                files1_mapped.append((f, f))  # (name, name)
+
+        # Build set of all file names to compare
+        all_files_to_compare = []
+        for old_name, new_name in files1_mapped:
+            all_files_to_compare.append((old_name, new_name))
+
+        # Also check files that only appear in files2
+        files1_new_names = {new_name for _, new_name in files1_mapped}
+        for f2 in files2:
+            if f2 not in files1_new_names:
+                all_files_to_compare.append((f2, f2))
 
         # Fetch all diffs in parallel
-        def fetch_diffs(filepath):
-            diff1 = get_file_diff(refspec1, filepath, ignore_whitespace, unified, find_renames, find_copies)
-            diff2 = get_file_diff(refspec2, filepath, ignore_whitespace, unified, find_renames, find_copies)
-            return filepath, diff1, diff2
+        def fetch_diffs(old_path, new_path):
+            diff1 = get_file_diff(refspec1, old_path, ignore_whitespace, unified, find_renames, find_copies)
+            diff2 = get_file_diff(refspec2, new_path, ignore_whitespace, unified, find_renames, find_copies)
+            return (old_path, new_path), diff1, diff2
 
         file_diffs = {}
         with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {executor.submit(fetch_diffs, fp): fp for fp in all_files}
+            futures = {executor.submit(fetch_diffs, old_path, new_path): (old_path, new_path)
+                      for old_path, new_path in all_files_to_compare}
             for future in as_completed(futures):
-                filepath, diff1, diff2 = future.result()
-                file_diffs[filepath] = (diff1, diff2)
+                file_pair, diff1, diff2 = future.result()
+                file_diffs[file_pair] = (diff1, diff2)
 
         # Process results in order
         different_files = []
-        for filepath in all_files:
-            diff1, diff2 = file_diffs[filepath]
+        for old_path, new_path in all_files_to_compare:
+            diff1, diff2 = file_diffs[(old_path, new_path)]
 
-            # Normalize diffs to ignore index SHAs
-            norm_diff1 = normalize_diff(diff1)
+            # Normalize diffs to ignore index SHAs and map paths
+            norm_diff1 = normalize_diff(diff1, rename_map)
             norm_diff2 = normalize_diff(diff2)
 
             if norm_diff1 != norm_diff2:
-                different_files.append(filepath)
+                # Display name: show rename if applicable
+                display_name = f"{old_path} → {new_path}" if old_path != new_path else old_path
+                different_files.append(display_name)
                 if not quiet:
                     echo(style(f"\n{'='*60}", fg='blue') if use_color else f"\n{'='*60}")
-                    echo(style(f"File: {filepath}", fg='yellow', bold=True) if use_color else f"File: {filepath}")
+                    echo(style(f"File: {display_name}", fg='yellow', bold=True) if use_color else f"File: {display_name}")
                     echo(style(f"{'='*60}", fg='blue') if use_color else f"{'='*60}")
 
                     # Show the diff of diffs for this file
+                    from_label = f'{old_path} in {refspec1}'
+                    to_label = f'{new_path} in {refspec2}'
                     diff_lines = list(difflib.unified_diff(
                         diff1.splitlines(),
                         diff2.splitlines(),
-                        fromfile=f'{filepath} in {refspec1}',
-                        tofile=f'{filepath} in {refspec2}',
+                        fromfile=from_label,
+                        tofile=to_label,
                         lineterm=''
                     ))
 

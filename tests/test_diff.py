@@ -1,6 +1,11 @@
 """Test diff utilities."""
 
-from didi.diff import build_diff_cmd, normalize_diff
+from didi.diff import (
+    build_diff_cmd,
+    compute_upstream_range,
+    normalize_diff,
+    parse_refspec_bases,
+)
 
 
 def test_build_diff_cmd_basic():
@@ -72,3 +77,30 @@ def test_normalize_diff_preserves_non_index_lines():
 +new content"""
     normalized = normalize_diff(diff_text)
     assert normalized == diff_text
+
+
+def test_parse_refspec_bases():
+    """Test parsing refspecs to extract bases."""
+    base1, tip1, base2, tip2 = parse_refspec_bases('A..B', 'C..D')
+    assert base1 == 'A'
+    assert tip1 == 'B'
+    assert base2 == 'C'
+    assert tip2 == 'D'
+
+
+def test_parse_refspec_bases_invalid():
+    """Test parsing invalid refspecs."""
+    result = parse_refspec_bases('A', 'B')
+    assert result == ('', '', '', '')
+
+
+def test_compute_upstream_range():
+    """Test computing upstream range from two refspecs."""
+    upstream = compute_upstream_range('main..feature', 'upstream/main..feature-rebased')
+    assert upstream == 'main..upstream/main'
+
+
+def test_compute_upstream_range_invalid():
+    """Test computing upstream range with invalid refspecs."""
+    upstream = compute_upstream_range('main', 'feature')
+    assert upstream == ''
