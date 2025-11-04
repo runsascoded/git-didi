@@ -88,6 +88,11 @@ def cli():
     pass
 
 
+# Register shell-integration command
+from .commands import shell_integration as shell_integration_module
+shell_integration_module.register(cli)
+
+
 @cli.command()
 @common_opts
 @arg('refspec1')
