@@ -116,6 +116,14 @@ def stat(
     use_color = should_use_color(color)
 
     with Pager(pager):
+        # Compute upstream range to detect renames
+        upstream_range = compute_upstream_range(refspec1, refspec2)
+        rename_map = {}
+        if upstream_range:
+            rename_map = get_rename_mapping(upstream_range, find_renames, find_copies)
+            if rename_map:
+                err(f"Detected {len(rename_map)} rename(s) in upstream ({upstream_range})")
+
         # Use --numstat for machine-readable output (fixed format, no spacing issues)
         # Only use --follow when filtering to a single path
         use_follow = len(paths) == 1
@@ -139,6 +147,29 @@ def stat(
 
         lines1 = result1.stdout.splitlines()
         lines2 = result2.stdout.splitlines()
+
+        # Apply rename mapping to lines1
+        # numstat format: "added\tdeleted\tfilename"
+        if rename_map:
+            normalized_lines1 = []
+            for line in lines1:
+                if '\t' in line:
+                    parts = line.split('\t', 2)
+                    if len(parts) == 3:
+                        added, deleted, filepath = parts
+                        # Apply rename mapping
+                        if filepath in rename_map:
+                            filepath = rename_map[filepath]
+                        normalized_lines1.append(f'{added}\t{deleted}\t{filepath}')
+                    else:
+                        normalized_lines1.append(line)
+                else:
+                    normalized_lines1.append(line)
+            lines1 = normalized_lines1
+
+        # Sort both for consistent comparison (git may output in different orders)
+        lines1 = sorted(lines1)
+        lines2 = sorted(lines2)
 
         # Show unified diff
         diff = difflib.unified_diff(
