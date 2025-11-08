@@ -32,9 +32,9 @@ def shell_integration(shell: str | None) -> None:
         else:
             shell = 'bash'  # default
 
-    # Get the package directory (go up from src/didi/commands to root)
-    pkg_dir = Path(__file__).parent.parent.parent.parent
-    shell_file = pkg_dir / 'shell' / f'git-didi.{shell if shell != "zsh" else "bash"}'
+    # Get the shell directory (in the didi package)
+    shell_dir = Path(__file__).parent.parent / 'shell'
+    shell_file = shell_dir / f'git-didi.{shell if shell != "zsh" else "bash"}'
 
     if shell_file.exists():
         with open(shell_file, 'r') as f:
