@@ -4,7 +4,7 @@ Compare diffs between two git ranges - a "diff of diffs" tool.
 
 > **Demo Branches**: See [test scenarios](docs/test-strategy.md#proposed-test-branch-structure) for examples you can try. Test scenario 01 is live in this repo!
 
-This tool is particularly useful for verifying rebases, especially when complex conflict resolution was involved. It helps ensure that the actual changes in your branch remain the same before and after rebasing onto a new upstream.
+This tool is particularly useful for verifying rebases and merges, especially when complex conflict resolution was involved. It helps ensure that the actual changes in your branch remain approximately the same before and after rebasing onto a new upstream.
 
 ## Installation
 

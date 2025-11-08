@@ -34,8 +34,8 @@ test = [
 ]
 
 [project.urls]
-Repository = "https://github.com/ryan-williams/git-didi"
-Issues = "https://github.com/ryan-williams/git-didi/issues"
+Repository = "https://github.com/runsascoded/git-didi"
+Issues = "https://github.com/runsascoded/git-didi/issues"
 
 [project.scripts]
 git-didi = "didi.cli:cli"
