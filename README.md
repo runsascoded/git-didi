@@ -1,5 +1,7 @@
 # git-didi
 
+[![git-didi](https://img.shields.io/pypi/v/git-didi?label=git-didi)](https://pypi.org/project/git-didi/)
+
 Compare diffs between two git ranges - a "diff of diffs" tool.
 
 > **Demo Branches**: See [test scenarios](docs/test-strategy.md#proposed-test-branch-structure) for examples you can try. Test scenario 01 is live in this repo!
